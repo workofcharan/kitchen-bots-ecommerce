@@ -1,6 +1,6 @@
 import { useState } from 'react';
-import { ArrowLeft, Check, Heart, Share2, ShoppingCart } from 'lucide-react';
-import { PRODUCTS, getProductById } from '../data/products';
+import { ArrowLeft, Check, Heart, Share2, ShoppingCart, Loader2 } from 'lucide-react';
+import { useProductDetail, useProducts } from '../hooks/use-products';
 import { useCart } from '../hooks/use-cart';
 import { useWishlist } from '../hooks/use-wishlist';
 import { useToast } from '../hooks/use-toast';
@@ -22,7 +22,8 @@ const formatPrice = (price: number) => new Intl.NumberFormat('en-IN', {
 }).format(price);
 
 export default function ProductDetailPage({ productId, onBack }: ProductDetailPageProps) {
-  const product = getProductById(productId);
+  const { product, loading: isProductLoading, error: productError } = useProductDetail(productId);
+  const { products: allProducts } = useProducts();
   const [activeImage, setActiveImage] = useState(0);
   const [tab, setTab] = useState<Tab>('Description');
   const [added, setAdded] = useState(false);
@@ -30,7 +31,16 @@ export default function ProductDetailPage({ productId, onBack }: ProductDetailPa
   const { toggleWishlist, isInWishlist } = useWishlist();
   const { showToast } = useToast();
 
-  if (!product) {
+  if (isProductLoading) {
+    return (
+      <section className="min-h-[60vh] bg-[#F8FAFC] px-6 py-32 text-center">
+        <Loader2 size={36} className="mx-auto mb-4 animate-spin text-kb-primary" />
+        <p className="text-sm font-medium text-[#64748B]">Loading product details...</p>
+      </section>
+    );
+  }
+
+  if (productError || !product) {
     return (
       <section className="min-h-[60vh] bg-[#F8FAFC] px-6 py-32 text-center">
         <h1 className="font-['Outfit'] text-3xl font-bold text-[#111827]">Product not found</h1>
@@ -40,8 +50,8 @@ export default function ProductDetailPage({ productId, onBack }: ProductDetailPa
     );
   }
 
-  const images = product.images.length ? product.images : [product.image];
-  const specifications = Object.entries(product.specifications);
+  const images = (product.images && product.images.length) ? product.images : [product.image];
+  const specifications = Object.entries(product.specifications || {});
 
   const addProduct = () => {
     addToCart({ id: product.id, name: product.name, price: product.price, image: product.image });
@@ -116,7 +126,7 @@ export default function ProductDetailPage({ productId, onBack }: ProductDetailPa
             </div>
 
             <ul className="mt-7 grid gap-3 sm:grid-cols-2">
-              {product.features.map(feature => (
+              {(product.features || []).map(feature => (
                 <li key={feature} className="flex items-start gap-2 text-sm font-medium text-[#475569]">
                   <Check size={17} className="mt-0.5 shrink-0 text-kb-primary" /> {feature}
                 </li>
@@ -172,7 +182,7 @@ export default function ProductDetailPage({ productId, onBack }: ProductDetailPa
         <section className="mt-20 border-t border-[#E2E8F0] pt-12">
           <h2 className="font-['Outfit'] text-2xl font-bold text-[#111827]">Related products</h2>
           <div className="mt-6 grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
-            {PRODUCTS.filter(item => item.id !== product.id && item.category === product.category).slice(0, 4).map(item => (
+            {allProducts.filter(item => item.id !== product.id && item.category === product.category).slice(0, 4).map(item => (
               <button key={item.id} onClick={() => window.location.href = `/product-detail?id=${encodeURIComponent(item.id)}`} className="overflow-hidden rounded-xl border border-[#E2E8F0] bg-white text-left">
                 <div className="aspect-[4/3] bg-[#F8FAFC] p-5"><ProductImage src={item.image} alt={item.name} className="h-full w-full object-contain" /></div>
                 <span className="block p-4 font-bold text-[#111827]">{item.name}</span>

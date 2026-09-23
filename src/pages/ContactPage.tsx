@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 import { gsap } from 'gsap';
 import { ScrollTrigger } from 'gsap/ScrollTrigger';
-import { MapPin, Phone, Mail, Clock, Send, CheckCircle, MessageCircle } from 'lucide-react';
+import { MapPin, Phone, Mail, Clock, Send, CheckCircle, MessageCircle, AlertCircle } from 'lucide-react';
 import { Button } from '../components/ui/button';
+import { apiClient } from '../lib/api-client';
 
 gsap.registerPlugin(ScrollTrigger);
 
@@ -45,6 +46,7 @@ export default function ContactPage() {
   });
   const [isSubmitted, setIsSubmitted] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   useEffect(() => {
     const section = sectionRef.current;
@@ -76,20 +78,32 @@ export default function ContactPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSubmitting(true);
+    setErrorMessage(null);
 
-    // Build mailto link and open in mail client
-    const subject = encodeURIComponent('KitchenBots Quote Enquiry – ' + formData.name);
-    const body = encodeURIComponent(
-      `Name: ${formData.name}\nEmail: ${formData.email}\nPhone: ${formData.phone}\nCompany: ${formData.company || 'N/A'}\nCity: ${formData.city || 'N/A'}\n\nRequirements:\n${formData.message}`
-    );
-    window.location.href = `mailto:kitchenbots.sales@gmail.com?subject=${subject}&body=${body}`;
-
-    // Show success state after short delay
-    setTimeout(() => {
-      setIsSubmitting(false);
+    try {
+      const idempotencyKey = `enq-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
+      await apiClient('/v1/enquiries', {
+        method: 'POST',
+        headers: {
+          'Idempotency-Key': idempotencyKey,
+        },
+        body: JSON.stringify({
+          name: formData.name,
+          email: formData.email,
+          phone: formData.phone,
+          company: formData.company,
+          city: formData.city,
+          message: formData.message,
+          type: 'quote'
+        }),
+      });
       setIsSubmitted(true);
       setFormData({ name: '', email: '', phone: '', company: '', city: '', message: '' });
-    }, 800);
+    } catch (err) {
+      setErrorMessage(err instanceof Error ? err.message : 'Failed to submit enquiry. Please try again.');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const handleChange = (
@@ -193,6 +207,12 @@ export default function ContactPage() {
               ) : (
                 /* ── Form ──────────────────────────────────────── */
                 <form onSubmit={handleSubmit} className="space-y-5">
+                  {errorMessage && (
+                    <div className="p-3.5 bg-[#FEF2F2] border border-[#FCA5A5] rounded-xl text-xs text-[#DC2626] flex items-center gap-2 font-['DM_Sans']">
+                      <AlertCircle size={16} className="shrink-0" />
+                      <span>{errorMessage}</span>
+                    </div>
+                  )}
 
                   {/* Row 1: Name + Email */}
                   <div className="grid md:grid-cols-2 gap-5">

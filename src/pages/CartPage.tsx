@@ -1,18 +1,16 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useCart } from '../hooks/use-cart';
-import { Trash2, Plus, Minus, ShoppingBag, ArrowRight } from 'lucide-react';
+import { useAuth } from '../context/AuthContext';
+import { Trash2, Plus, Minus, ShoppingBag, ArrowRight, CheckCircle, AlertCircle, Lock } from 'lucide-react';
 import type { Page } from '../App';
 import { Button } from '../components/ui/button';
 import ProductImage from '../components/ProductImage';
+import { apiClient } from '../lib/api-client';
 
 interface CartPageProps {
   onNavigate: (page: Page) => void;
 }
 
-/**
- * Safely renders configuration values as React content based on runtime type.
- * Prevents errors when objects, arrays, booleans, or nullish values are present.
- */
 function renderConfigValue(value: unknown): React.ReactNode {
   if (value === null || value === undefined) {
     return '';
@@ -35,7 +33,12 @@ function renderConfigValue(value: unknown): React.ReactNode {
 }
 
 export default function CartPage({ onNavigate }: CartPageProps) {
-  const { items, removeFromCart, updateQuantity, totalPrice, totalItems } = useCart();
+  const { items, removeFromCart, updateQuantity, totalPrice, totalItems, clearCart } = useCart();
+  const { user } = useAuth();
+  
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [orderConfirmation, setOrderConfirmation] = useState<{ id?: string; referenceNumber?: string } | null>(null);
 
   const handleUpdateQuantity = (id: string, newQuantity: number) => {
     if (!Number.isFinite(newQuantity)) return;
@@ -44,6 +47,79 @@ export default function CartPage({ onNavigate }: CartPageProps) {
       updateQuantity(id, sanitized);
     }
   };
+
+  const handlePlaceOrder = async () => {
+    if (!user) {
+      onNavigate('login');
+      return;
+    }
+
+    setIsSubmitting(true);
+    setErrorMessage(null);
+
+    try {
+      const idempotencyKey = `ord-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
+      const response = await apiClient<{ id?: string; referenceNumber?: string }>('/v1/orders', {
+        method: 'POST',
+        requireAuth: true,
+        headers: {
+          'Idempotency-Key': idempotencyKey,
+        },
+        body: JSON.stringify({
+          items: items.map(i => ({
+            productId: i.id,
+            quantity: i.quantity,
+            price: i.price,
+            name: i.name,
+            configuration: i.configuration
+          })),
+          totalItems,
+          estimatedTotal: totalPrice
+        }),
+      });
+
+      clearCart();
+      setOrderConfirmation(response || { id: `ORD-${Date.now().toString().slice(-6)}` });
+    } catch (err) {
+      setErrorMessage(err instanceof Error ? err.message : 'Failed to place order. Please try again.');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  if (orderConfirmation) {
+    return (
+      <main className="min-h-screen bg-[#FAFAFA] pt-20">
+        <div className="container mx-auto px-4 sm:px-6 lg:px-8 py-12 md:py-20">
+          <div className="max-w-lg mx-auto bg-white border border-[#E2E8F0] rounded-2xl p-8 sm:p-12 text-center shadow-xs">
+            <div className="w-16 h-16 bg-[#F0FDF4] border border-[#DCFCE7] rounded-full flex items-center justify-center mx-auto mb-5 text-kb-primary">
+              <CheckCircle className="w-8 h-8" aria-hidden="true" />
+            </div>
+            <h1 className="text-2xl sm:text-3xl font-bold text-[#111827] font-['Outfit'] mb-2">
+              Order Confirmed!
+            </h1>
+            <p className="text-[#64748B] text-sm sm:text-base font-['DM_Sans'] mb-4">
+              Thank you for your order. Your order reference is:
+            </p>
+            <div className="inline-block px-4 py-2 bg-[#F8FAFC] border border-[#E2E8F0] rounded-lg text-sm font-mono font-bold text-[#111827] mb-6">
+              {orderConfirmation.referenceNumber || orderConfirmation.id || 'CONFIRMED'}
+            </div>
+            <p className="text-[#64748B] text-xs font-['DM_Sans'] mb-8">
+              Our team will review your order requirements and send dispatch & shipping updates to <span className="font-semibold text-[#111827]">{user?.email}</span>.
+            </p>
+            <Button
+              onClick={() => onNavigate('products')}
+              variant="secondary"
+              size="lg"
+              className="w-full sm:w-auto bg-kb-primary hover:bg-[#145e2e] text-white"
+            >
+              Continue Shopping
+            </Button>
+          </div>
+        </div>
+      </main>
+    );
+  }
 
   if (items.length === 0) {
     return (
@@ -106,13 +182,20 @@ export default function CartPage({ onNavigate }: CartPageProps) {
               Shopping Cart
             </h1>
             <p className="mt-1 text-sm text-[#64748B] font-['DM_Sans']">
-              Review items in your order before requesting a formal quote.
+              Review items in your order before placing your order or requesting a quote.
             </p>
           </div>
           <span className="text-sm font-medium text-[#64748B] shrink-0">
             {totalItems} {totalItems === 1 ? 'item' : 'items'}
           </span>
         </header>
+
+        {errorMessage && (
+          <div className="mb-6 p-4 bg-[#FEF2F2] border border-[#FCA5A5] rounded-xl text-xs text-[#DC2626] flex items-center gap-2 font-['DM_Sans']">
+            <AlertCircle size={16} className="shrink-0" />
+            <span>{errorMessage}</span>
+          </div>
+        )}
 
         {/* Main Grid */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 items-start">
@@ -159,7 +242,7 @@ export default function CartPage({ onNavigate }: CartPageProps) {
                         </div>
                       </div>
 
-                      {/* Product Configuration Display (if supported) */}
+                      {/* Product Configuration Display */}
                       {hasConfig && item.configuration && (
                         <div className="mt-2 text-xs text-[#64748B] space-y-1 bg-[#F8FAFC] border border-[#F1F5F9] rounded-md p-2.5">
                           <span className="font-semibold text-[#475569] uppercase tracking-wider text-[10px]">
@@ -243,11 +326,11 @@ export default function CartPage({ onNavigate }: CartPageProps) {
                 </div>
                 <div className="flex justify-between items-center text-[#475569]">
                   <span>Shipping & freight</span>
-                  <span className="font-medium text-[#1E293B]">Confirmed by quote</span>
+                  <span className="font-medium text-[#1E293B]">Confirmed upon order</span>
                 </div>
                 <div className="flex justify-between items-center text-[#475569]">
                   <span>Taxes & GST</span>
-                  <span className="font-medium text-[#1E293B]">Calculated in quote</span>
+                  <span className="font-medium text-[#1E293B]">Calculated on invoice</span>
                 </div>
 
                 <div className="h-px bg-[#E2E8F0] my-4" />
@@ -264,28 +347,40 @@ export default function CartPage({ onNavigate }: CartPageProps) {
 
               {/* Functional emphasis note */}
               <div className="mt-4 p-3 bg-[#FFFBEB] border border-[#FDE68A] rounded-lg text-xs text-[#92400E] leading-relaxed">
-                Prices shown in INR. Final freight, taxes, and lead times are confirmed upon quote submission.
+                Prices shown in INR. Final freight, taxes, and lead times are verified on server order creation.
               </div>
 
               {/* Actions */}
               <div className="mt-6 space-y-3">
                 <Button
-                  onClick={() => onNavigate('bulk-enquiry')}
+                  onClick={handlePlaceOrder}
+                  disabled={isSubmitting}
                   variant="secondary"
                   size="lg"
                   className="w-full text-base font-bold flex items-center justify-center gap-2 bg-kb-primary hover:bg-[#145e2e] text-white focus-visible:ring-2 focus-visible:ring-kb-primary focus-visible:ring-offset-2"
                 >
-                  Request Quote
-                  <ArrowRight className="w-4 h-4" aria-hidden="true" />
+                  {isSubmitting ? (
+                    'Processing Order...'
+                  ) : user ? (
+                    <>
+                      Place Direct Order
+                      <ArrowRight className="w-4 h-4" aria-hidden="true" />
+                    </>
+                  ) : (
+                    <>
+                      <Lock className="w-4 h-4" aria-hidden="true" />
+                      Sign In to Place Order
+                    </>
+                  )}
                 </Button>
 
                 <Button
-                  onClick={() => onNavigate('products')}
+                  onClick={() => onNavigate('bulk-enquiry')}
                   variant="outline"
                   size="default"
-                  className="w-full text-sm font-medium focus-visible:ring-2 focus-visible:ring-kb-primary focus-visible:ring-offset-2"
+                  className="w-full text-sm font-medium"
                 >
-                  Browse Products
+                  Request Bulk Quote
                 </Button>
               </div>
             </div>

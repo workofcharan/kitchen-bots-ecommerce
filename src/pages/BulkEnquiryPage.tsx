@@ -4,10 +4,12 @@ import {
   Send,
   CheckCircle,
   Building2,
-  MessageCircle
+  MessageCircle,
+  AlertCircle
 } from 'lucide-react';
 import type { Page } from '../App';
 import { Button } from '../components/ui/button';
+import { apiClient } from '../lib/api-client';
 
 interface BulkEnquiryPageProps {
   onNavigate: (page: Page) => void;
@@ -22,17 +24,38 @@ export default function BulkEnquiryPage({ onNavigate }: BulkEnquiryPageProps) {
     city: '',
     requirements: ''
   });
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSubmitted, setIsSubmitted] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setIsSubmitted(true);
-    // Build mailto link and open in mail client
-    const subject = encodeURIComponent('KitchenBots Bulk Enquiry – ' + formData.name);
-    const body = encodeURIComponent(
-      `Name: ${formData.name}\nEmail: ${formData.email}\nPhone: ${formData.phone}\nCompany: ${formData.company || 'N/A'}\nCity: ${formData.city || 'N/A'}\n\nRequirements:\n${formData.requirements}`
-    );
-    window.location.href = `mailto:kitchenbots.sales@gmail.com?subject=${subject}&body=${body}`;
+    setIsSubmitting(true);
+    setErrorMessage(null);
+
+    try {
+      const idempotencyKey = `enq-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
+      await apiClient('/v1/enquiries', {
+        method: 'POST',
+        headers: {
+          'Idempotency-Key': idempotencyKey,
+        },
+        body: JSON.stringify({
+          name: formData.name,
+          email: formData.email,
+          phone: formData.phone,
+          company: formData.company,
+          city: formData.city,
+          message: formData.requirements,
+          type: 'bulk'
+        }),
+      });
+      setIsSubmitted(true);
+    } catch (err) {
+      setErrorMessage(err instanceof Error ? err.message : 'Failed to submit enquiry. Please try again.');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -118,10 +141,10 @@ export default function BulkEnquiryPage({ onNavigate }: BulkEnquiryPageProps) {
                     <CheckCircle className="text-kb-primary" size={40} />
                   </div>
                   <h3 className="text-[24px] font-bold text-[#111827] mb-3 font-['Outfit']">Enquiry Received!</h3>
-                  <p className="text-[#64748B] font-['DM_Sans'] mb-8">We've sent your requirements to our sales team. You'll hear from us shortly.</p>
+                  <p className="text-[#64748B] font-['DM_Sans'] mb-8">We've received your enquiry and sent your requirements to our sales team. You'll hear from us shortly.</p>
                   <Button 
                     variant="link"
-                    onClick={() => setIsSubmitted(false)}
+                    onClick={() => { setIsSubmitted(false); setFormData({ name: '', email: '', phone: '', company: '', city: '', requirements: '' }); }}
                     className="text-kb-tertiary font-bold p-0"
                   >
                     Submit another enquiry
@@ -135,6 +158,13 @@ export default function BulkEnquiryPage({ onNavigate }: BulkEnquiryPageProps) {
                     </div>
                     <h3 className="text-[22px] font-bold text-[#111827] font-['Outfit']">Submit Requirements</h3>
                   </div>
+
+                  {errorMessage && (
+                    <div className="mb-6 p-4 bg-[#FEF2F2] border border-[#FCA5A5] rounded-xl text-xs text-[#DC2626] flex items-center gap-2">
+                      <AlertCircle size={16} className="shrink-0" />
+                      <span>{errorMessage}</span>
+                    </div>
+                  )}
 
                   <form onSubmit={handleSubmit} className="space-y-6">
                     <div className="grid md:grid-cols-2 gap-6">
@@ -209,12 +239,13 @@ export default function BulkEnquiryPage({ onNavigate }: BulkEnquiryPageProps) {
 
                     <Button 
                       type="submit"
+                      disabled={isSubmitting}
                       variant="accent"
                       size="lg"
                       className="w-full h-[60px] gap-3"
                     >
                       <Send size={20} />
-                      Submit Enquiry
+                      {isSubmitting ? 'Submitting...' : 'Submit Enquiry'}
                     </Button>
                     
                     <p className="text-center text-[13px] text-[#94A3B8] font-['DM_Sans']">
